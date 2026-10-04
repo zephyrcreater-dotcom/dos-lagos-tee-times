@@ -124,18 +124,27 @@ class TestSmsConfigFromEnv:
 class TestBuildSmsBody:
     def test_single_match_includes_booking_url(self):
         body = build_sms_body([make_tee_time("2026-10-10", "07:30", spots=2)])
-        assert "Saturday, October 10" in body
+        assert "Sat 10/10" in body
         assert "7:30 AM" in body
         assert "https://example.test/book?date=2026-10-10" in body
 
-    def test_multiple_matches_gives_count_and_earliest_only(self):
+    def test_multiple_matches_on_different_dates_each_get_their_url(self):
         tee_times = [
             make_tee_time("2026-10-11", "08:00"),
             make_tee_time("2026-10-10", "07:30"),
         ]
         body = build_sms_body(tee_times)
         assert "2 matching tee times" in body
-        assert "Earliest: Saturday, October 10 7:30 AM" in body
-        assert "Check email for the full list" in body
-        # Should not dump every booking URL into the text.
-        assert body.count("example.test") == 0
+        assert "Sat 10/10 7:30 AM: https://example.test/book?date=2026-10-10" in body
+        assert "Sun 10/11 8:00 AM: https://example.test/book?date=2026-10-11" in body
+
+    def test_same_hour_matches_share_one_url_line(self):
+        # Two times in the same date/hour share a booking_url (it brackets the whole hour)
+        # — the text should list both times once, with the link only once.
+        tee_times = [
+            make_tee_time("2026-10-10", "07:30"),
+            make_tee_time("2026-10-10", "07:40"),
+        ]
+        body = build_sms_body(tee_times)
+        assert body.count("example.test") == 1
+        assert "7:30 AM, 7:40 AM" in body

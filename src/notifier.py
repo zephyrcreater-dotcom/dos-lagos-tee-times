@@ -190,31 +190,39 @@ def sms_config_from_env(base_config: EmailConfig) -> EmailConfig | None:
     return base_config.with_recipient(gateway_address)
 
 
-def build_sms_body(tee_times: list[TeeTime]) -> str:
-    """A short text-message-friendly summary — full details go in the email, not the text.
+def _format_date_short(iso_date: str) -> str:
+    d = datetime.strptime(iso_date, "%Y-%m-%d")
+    return f"{d.strftime('%a')} {d.month}/{d.day}"
 
-    Carrier email-to-SMS gateways will split a longer message into multiple texts rather
-    than reject it, but keeping this short and scannable matters more for a text than an
-    email: this is meant to be glanced at, not read in depth.
+
+def build_sms_body(tee_times: list[TeeTime]) -> str:
+    """A text-message summary that always includes the booking link(s).
+
+    Tee times are grouped by (date, booking_url) — since a link already brackets a whole
+    hour (see teeitup.booking_url_for_slot), multiple matching times in the same hour share
+    one link, so it's listed once per group rather than repeated per time. Carrier
+    email-to-SMS gateways split a longer message into multiple texts rather than reject it,
+    so there's no hard length cap to engineer around here.
     """
     ordered = sorted(tee_times, key=lambda t: (t.date, t.time))
     count = len(ordered)
     noun = "tee time" if count == 1 else "tee times"
 
-    if count == 1:
-        t = ordered[0]
-        spots_word = "spot" if t.available_spots == 1 else "spots"
-        return (
-            f"Dos Lagos: {_format_date_long(t.date)} {_format_time_12h(t.time)} "
-            f"({t.available_spots} {spots_word}) available. {t.booking_url}"
-        )
+    groups: dict[tuple[str, str], list[str]] = {}
+    group_order: list[tuple[str, str]] = []
+    for t in ordered:
+        key = (t.date, t.booking_url)
+        if key not in groups:
+            groups[key] = []
+            group_order.append(key)
+        groups[key].append(_format_time_12h(t.time))
 
-    earliest = ordered[0]
-    return (
-        f"Dos Lagos: {count} matching {noun} available. "
-        f"Earliest: {_format_date_long(earliest.date)} {_format_time_12h(earliest.time)}. "
-        "Check email for the full list."
-    )
+    lines = [f"Dos Lagos: {count} matching {noun} available."]
+    for date_str, url in group_order:
+        times_str = ", ".join(groups[(date_str, url)])
+        lines.append(f"{_format_date_short(date_str)} {times_str}: {url}")
+
+    return "\n".join(lines)
 
 
 def send_sms_alert(tee_times: list[TeeTime], sms_config: EmailConfig) -> None:
