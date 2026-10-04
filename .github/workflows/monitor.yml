@@ -62,6 +62,7 @@ jobs:
           NOTIFY_EMAIL: ${{ secrets.NOTIFY_EMAIL }}
           PHONE_NUMBER: ${{ secrets.PHONE_NUMBER }}
           CARRIER: ${{ secrets.CARRIER }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
         run: |
           ARGS=""
           if [ "${{ inputs.test_sms }}" = "true" ]; then ARGS="$ARGS --test-sms"; fi

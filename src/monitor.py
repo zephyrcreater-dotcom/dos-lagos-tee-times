@@ -21,7 +21,10 @@ from .notifier import (
     EmailConfig,
     build_consolidated_body,
     build_sms_body,
+    ntfy_server_from_env,
+    ntfy_topic_from_env,
     send_consolidated_alert,
+    send_ntfy_alert,
     send_sms_alert,
     send_sms_diagnostic,
     sms_config_from_env,
@@ -88,6 +91,8 @@ def run_one_cycle(config: dict, state_path: str, dry_run: bool, single_date: str
             print(build_consolidated_body(matching))
             print("-- SMS that would be sent, if PHONE_NUMBER/CARRIER are configured --")
             print(build_sms_body(matching))
+            print("-- ntfy.sh push that would be sent, if NTFY_TOPIC is configured --")
+            print("(same content as the email above, with a tap-to-open link to the earliest match)")
         else:
             print("No matching tee times found.")
         return 0
@@ -118,6 +123,16 @@ def run_one_cycle(config: dict, state_path: str, dry_run: bool, single_date: str
             # SMS is an optional add-on to the email alert — a failure here should not be
             # treated as a failed run (the email already went out successfully).
             logger.exception("Failed to send SMS alert (email alert already sent successfully)")
+
+        try:
+            ntfy_topic = ntfy_topic_from_env()
+            if ntfy_topic is not None:
+                send_ntfy_alert(matching, ntfy_topic, ntfy_server_from_env())
+            else:
+                logger.info("NTFY_TOPIC not set; skipping ntfy.sh push alert.")
+        except Exception:
+            # Same as SMS: optional add-on, never fails an otherwise-successful run.
+            logger.exception("Failed to send ntfy.sh alert (email alert already sent successfully)")
     else:
         logger.info("No newly-available matching tee times; no email sent.")
 

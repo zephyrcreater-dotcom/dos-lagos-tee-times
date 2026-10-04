@@ -179,6 +179,47 @@ def send_consolidated_alert(tee_times: list[TeeTime], config: EmailConfig) -> No
     )
 
 
+DEFAULT_NTFY_SERVER = "https://ntfy.sh"
+NTFY_TIMEOUT_SECONDS = 10
+
+
+def ntfy_topic_from_env() -> str | None:
+    """The ntfy.sh topic name to publish to, or None if push alerts aren't configured.
+
+    ntfy's free public server has no access control beyond obscurity: anyone who knows (or
+    guesses) the topic name can read or publish to it. Treat NTFY_TOPIC as a secret — a long,
+    random string, stored only as a GitHub Secret, never committed to config.json.
+    """
+    return os.environ.get("NTFY_TOPIC") or None
+
+
+def ntfy_server_from_env() -> str:
+    return os.environ.get("NTFY_SERVER") or DEFAULT_NTFY_SERVER
+
+
+def send_ntfy_alert(tee_times: list[TeeTime], topic: str, server: str = DEFAULT_NTFY_SERVER) -> None:
+    """Push a notification via ntfy.sh listing every matching tee time with full links.
+
+    Unlike carrier SMS gateways, ntfy has no link-content spam filtering and no sender
+    rate-limiting we've hit — so this reuses the same full-detail body as the email (no need
+    for URL shortening or hour-grouping tricks) and sets a tap-to-open link to the earliest
+    match.
+    """
+    ordered = sorted(tee_times, key=lambda t: (t.date, t.time))
+    title = build_consolidated_subject(ordered)
+    body = build_consolidated_body(ordered)
+
+    headers = {"Title": title}
+    if ordered:
+        headers["Click"] = ordered[0].booking_url
+
+    url = f"{server.rstrip('/')}/{topic}"
+    logger.info("Sending ntfy.sh push notification to topic (hidden) via %s", server)
+    response = requests.post(url, data=body.encode("utf-8"), headers=headers, timeout=NTFY_TIMEOUT_SECONDS)
+    response.raise_for_status()
+    logger.info("ntfy.sh notification sent successfully")
+
+
 def sms_config_from_env(base_config: EmailConfig) -> EmailConfig | None:
     """Build an SMS-targeted EmailConfig from PHONE_NUMBER/CARRIER env vars, if both are set.
 

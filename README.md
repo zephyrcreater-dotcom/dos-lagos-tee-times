@@ -67,23 +67,35 @@ in `config.json` or any file you commit.**
 | `GMAIL_ADDRESS` | The Gmail address you created the App Password for (e.g. `you@gmail.com`) |
 | `GMAIL_APP_PASSWORD` | The 16-character App Password from step 2 (spaces are fine either way) |
 | `NOTIFY_EMAIL` | The email address that should **receive** alerts (can be the same as `GMAIL_ADDRESS`) |
-| `PHONE_NUMBER` *(optional)* | Your 10-digit US phone number, for free SMS text alerts (e.g. `5551234567`) |
-| `CARRIER` *(optional)* | Your carrier — one of `att`, `t-mobile`, `verizon`, `sprint`, `google-fi`, `us-cellular`, `cricket`, `boost`, `metro`, `visible` |
+| `NTFY_TOPIC` *(optional)* | A long, random topic name for free push notifications (see below) |
 
-The last two are optional — without them, you just get email. With both set, every alert
-also goes out as a free text message via your carrier's email-to-SMS gateway (no Twilio, no
-paid SMS API — it's literally an email sent to e.g. `5551234567@tmomail.net`, which your
-carrier delivers as a text). The text is a short summary (count + earliest match, or full
-detail if there's exactly one match) — the complete numbered list with links always lives
-in the email.
+`NTFY_TOPIC` is optional — without it, you just get email. With it set, every alert also
+pushes instantly to your phone via [ntfy](https://ntfy.sh), a free, open-source push
+notification service — no account, no paid tier, no app-store sign-up.
+
+**Setting up ntfy push alerts:**
+
+1. Install the **ntfy** app ([iOS](https://apps.apple.com/us/app/ntfy/id1625396347) /
+   [Android](https://play.google.com/store/apps/details?id=io.heckel.ntfy)).
+2. Pick a topic name that's **long and hard to guess** — ntfy's free public server has no
+   login or access control, so anyone who knows your exact topic name could read your alerts
+   or post fake ones to it. Something like `dos-lagos-<random-words-or-numbers-only-you-know>`
+   is enough; don't use a short/obvious name like `dos-lagos-alerts`.
+3. In the app, tap **+** and subscribe to that exact topic name on the default server
+   (`ntfy.sh`).
+4. Add it as the `NTFY_TOPIC` GitHub Secret (step 3 above).
 
 That's it — no other secrets are needed. There are no API keys for the tee-time data
 itself; that endpoint is public (see RESEARCH.md).
 
-**A note on SMS reliability:** carrier email-to-SMS gateways are free but unofficial —
-they're not guaranteed by the carrier, can be delayed by a few minutes, and are occasionally
-dropped by the carrier's spam filtering. Treat the text as a fast heads-up and the email as
-the reliable source of truth.
+**Why not carrier SMS (email-to-text gateways)?** This project tried that first — it's also
+free, but turned out to be unreliable in two separate ways found during testing: T-Mobile's
+`tmomail.net` gateway silently drops any text containing a link at all (confirmed via a
+direct A/B test — a link-free text arrived, the same message with a link didn't), and
+sending more than a handful of test messages in a short window got the destination address
+rate-limited/blocked outright. ntfy has shown neither problem. The carrier-SMS code path is
+still in the codebase (`sms_gateway_address`, `send_sms_alert` in `src/notifier.py`) in case
+you want to experiment with a different carrier, but it's not part of the recommended setup.
 
 ---
 
