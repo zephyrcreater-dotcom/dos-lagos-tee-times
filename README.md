@@ -113,7 +113,7 @@ Edit `config.json`:
   "facility_id": "3510",
   "days": ["Saturday", "Sunday"],
   "earliest_time": "00:00",
-  "latest_time": "08:59",
+  "latest_time": "09:59",
   "minimum_open_spots": 1,
   "days_ahead": 12
 }
@@ -123,7 +123,7 @@ Edit `config.json`:
 |---|---|
 | `alias` / `facility_id` | Identify Dos Lagos on TeeItUp. Leave these alone unless you're adapting this project for a different course. |
 | `days` | Which weekdays to check — any of `Monday` … `Sunday`. |
-| `earliest_time` / `latest_time` | 24-hour `HH:MM`, inclusive. Only tee times in this window match. The default (`00:00`–`08:59`) means "before 9:00 AM". |
+| `earliest_time` / `latest_time` | 24-hour `HH:MM`, inclusive. Only tee times in this window match. The default (`00:00`–`09:59`) means "before 10:00 AM". |
 | `minimum_open_spots` | Minimum open spots in the group for a tee time to count as a match. |
 | `days_ahead` | How many days out to look, inclusive of today. **Leave this at 12** — that's Dos Lagos's actual, confirmed booking window (see RESEARCH.md). Raising it just means extra API calls for dates that will always come back empty. |
 
@@ -179,7 +179,7 @@ This is exactly the body of the single email you'd get for a real run — every 
 tee time is numbered and listed together, not sent as separate emails.
 
 If you see `No matching tee times found.`, that's usually correct — it just means nothing
-within your date/time/spots filters is open right now (very common for the "before 9:00 AM"
+within your date/time/spots filters is open right now (very common for the "before 10:00 AM"
 default, since early slots tend to get booked first). Loosen `earliest_time`/`latest_time`
 temporarily to double check real tee times are coming back at all.
 

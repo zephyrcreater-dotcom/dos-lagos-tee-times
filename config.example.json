@@ -3,7 +3,7 @@
   "facility_id": "3510",
   "days": ["Saturday", "Sunday"],
   "earliest_time": "00:00",
-  "latest_time": "08:59",
+  "latest_time": "09:59",
   "minimum_open_spots": 1,
   "days_ahead": 12
 }
