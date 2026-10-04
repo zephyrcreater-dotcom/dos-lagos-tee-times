@@ -1,17 +1,9 @@
 {
   "alias": "dos-lagos-golf-course",
   "facility_id": "3510",
-  "days": [
-    "Sunday",
-    "Monday",
-    "Tuesday",
-    "Wednesday",
-    "Thursday",
-    "Friday",
-    "Saturday"
-  ],
-  "earliest_time": "00:00",
-  "latest_time": "23:59",
-  "minimum_open_spots": 1,
-  "days_ahead": 1
+  "days": ["Saturday", "Sunday"],
+  "earliest_time": "06:00",
+  "latest_time": "11:00",
+  "minimum_open_spots": 2,
+  "days_ahead": 12
 }
