@@ -17,7 +17,7 @@ from datetime import datetime, time as dt_time
 from pathlib import Path
 
 from . import filters, state as state_module
-from .notifier import EmailConfig, send_tee_time_alerts
+from .notifier import EmailConfig, build_consolidated_body, send_consolidated_alert
 from .teeitup import COURSE_TIMEZONE, TeeItUpError, TeeTime, get_tee_times
 
 logger = logging.getLogger(__name__)
@@ -58,15 +58,6 @@ def fetch_all_tee_times(dates: list[str], config: dict) -> list[TeeTime]:
     return all_tee_times
 
 
-def print_tee_times(tee_times: list[TeeTime]) -> None:
-    if not tee_times:
-        print("No matching tee times found.")
-        return
-    for t in sorted(tee_times, key=lambda x: (x.date, x.time)):
-        price_str = f"${t.price:.2f}" if t.price is not None else "price n/a"
-        print(f"{t.date} {t.time}  {t.available_spots} spot(s)  {price_str}  {t.booking_url}")
-
-
 def run_one_cycle(config: dict, state_path: str, dry_run: bool, single_date: str | None) -> int:
     """Run exactly one fetch -> filter -> diff -> notify -> save cycle. Returns an exit code."""
     dates = [single_date] if single_date else fetch_candidate_dates(config)
@@ -83,22 +74,28 @@ def run_one_cycle(config: dict, state_path: str, dry_run: bool, single_date: str
     newly_available = state_module.find_newly_available(matching, state)
 
     if dry_run:
-        print(f"-- Dry run: {len(newly_available)} newly-available matching tee time(s) --")
-        print_tee_times(newly_available)
-        print(f"\n-- All {len(matching)} matching tee time(s) (including already-notified) --")
-        print_tee_times(matching)
+        print(f"-- {len(newly_available)} of {len(matching)} matching tee time(s) are new since last run --")
+        if matching:
+            print("\n-- Email that would be sent (consolidated, numbered list) --")
+            print(build_consolidated_body(matching))
+        else:
+            print("No matching tee times found.")
         return 0
 
     if newly_available:
-        logger.info("Sending email alert(s) for %d newly-available tee time(s)", len(newly_available))
+        logger.info(
+            "%d newly-available tee time(s); sending one consolidated email listing all %d current match(es)",
+            len(newly_available),
+            len(matching),
+        )
         try:
             email_config = EmailConfig.from_env()
-            send_tee_time_alerts(newly_available, email_config)
+            send_consolidated_alert(matching, email_config)
         except ValueError as exc:
             logger.error("Cannot send email: %s", exc)
             return 1
         except Exception:
-            logger.exception("Failed to send one or more email alerts")
+            logger.exception("Failed to send email alert")
             return 1
     else:
         logger.info("No newly-available matching tee times; no email sent.")

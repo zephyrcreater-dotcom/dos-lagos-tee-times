@@ -90,6 +90,45 @@ def send_tee_time_alert(tee_time: TeeTime, config: EmailConfig) -> None:
     )
 
 
+def build_consolidated_subject(tee_times: list[TeeTime]) -> str:
+    count = len(tee_times)
+    noun = "tee time" if count == 1 else "tee times"
+    return f"Dos Lagos: {count} matching {noun} available"
+
+
+def build_consolidated_body(tee_times: list[TeeTime], checked_at: datetime | None = None) -> str:
+    """List every matching tee time, numbered, for a single consolidated email.
+
+    The number is a 1-based position in this list (sorted by date then time) — it is
+    reassigned fresh on every email, not a stable ID. It exists so a future reply-to-book
+    workflow can say "book #3" in a way that's unambiguous for *that* email.
+    """
+    checked_at = checked_at or datetime.now(COURSE_TIMEZONE)
+    ordered = sorted(tee_times, key=lambda t: (t.date, t.time))
+
+    lines = [f"{len(ordered)} matching Dos Lagos tee time(s) available.\n"]
+    for i, t in enumerate(ordered, start=1):
+        spots_word = "spot" if t.available_spots == 1 else "spots"
+        price_str = f"${t.price:.0f}/player" if t.price is not None else "price unavailable"
+        lines.append(
+            f"{i}) {_format_date_long(t.date)} — {_format_time_12h(t.time)} — "
+            f"{t.available_spots} {spots_word} — {price_str}\n"
+            f"   BOOK: {t.booking_url}"
+        )
+
+    lines.append(f"\nChecked at: {checked_at.strftime('%Y-%m-%d %I:%M %p %Z')}")
+    return "\n".join(lines) + "\n"
+
+
+def send_consolidated_alert(tee_times: list[TeeTime], config: EmailConfig) -> None:
+    """Send a single email listing every matching tee time, instead of one email each."""
+    send_email(
+        subject=build_consolidated_subject(tee_times),
+        body=build_consolidated_body(tee_times),
+        config=config,
+    )
+
+
 def send_email(subject: str, body: str, config: EmailConfig) -> None:
     message = MIMEMultipart()
     message["From"] = config.sender_address

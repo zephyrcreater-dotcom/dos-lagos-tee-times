@@ -86,9 +86,9 @@ Edit `config.json`:
   "alias": "dos-lagos-golf-course",
   "facility_id": "3510",
   "days": ["Saturday", "Sunday"],
-  "earliest_time": "06:00",
-  "latest_time": "11:00",
-  "minimum_open_spots": 2,
+  "earliest_time": "00:00",
+  "latest_time": "08:59",
+  "minimum_open_spots": 1,
   "days_ahead": 12
 }
 ```
@@ -97,7 +97,7 @@ Edit `config.json`:
 |---|---|
 | `alias` / `facility_id` | Identify Dos Lagos on TeeItUp. Leave these alone unless you're adapting this project for a different course. |
 | `days` | Which weekdays to check — any of `Monday` … `Sunday`. |
-| `earliest_time` / `latest_time` | 24-hour `HH:MM`, inclusive. Only tee times in this window match. |
+| `earliest_time` / `latest_time` | 24-hour `HH:MM`, inclusive. Only tee times in this window match. The default (`00:00`–`08:59`) means "before 9:00 AM". |
 | `minimum_open_spots` | Minimum open spots in the group for a tee time to count as a match. |
 | `days_ahead` | How many days out to look, inclusive of today. **Leave this at 12** — that's Dos Lagos's actual, confirmed booking window (see RESEARCH.md). Raising it just means extra API calls for dates that will always come back empty. |
 
@@ -136,13 +136,25 @@ python -m src.monitor --date 2026-10-10 --dry-run
 You should see output like:
 
 ```
--- Dry run: 2 newly-available matching tee time(s) --
-2026-10-10 07:30  4 spot(s)  $47.00  https://dos-lagos-golf-course.book.teeitup.com/teetimes?course=3510&date=2026-10-10&max=999999
-...
+-- 2 of 2 matching tee time(s) are new since last run --
+
+-- Email that would be sent (consolidated, numbered list) --
+2 matching Dos Lagos tee time(s) available.
+
+1) Saturday, October 10 — 7:30 AM — 4 spots — $47/player
+   BOOK: https://dos-lagos-golf-course.book.teeitup.com/teetimes?course=3510&date=2026-10-10&max=999999
+2) Sunday, October 11 — 8:15 AM — 3 spots — $47/player
+   BOOK: https://dos-lagos-golf-course.book.teeitup.com/teetimes?course=3510&date=2026-10-11&max=999999
+
+Checked at: 2026-10-04 07:48 AM PDT
 ```
 
+This is exactly the body of the single email you'd get for a real run — every matching
+tee time is numbered and listed together, not sent as separate emails.
+
 If you see `No matching tee times found.`, that's usually correct — it just means nothing
-within your date/time/spots filters is open right now. Loosen `earliest_time`/`latest_time`
+within your date/time/spots filters is open right now (very common for the "before 9:00 AM"
+default, since early slots tend to get booked first). Loosen `earliest_time`/`latest_time`
 temporarily to double check real tee times are coming back at all.
 
 ---
@@ -187,33 +199,43 @@ You don't have to wait for the schedule to test the deployed version:
 
 ## 8. How the automatic schedule works
 
-There are two kinds of scheduled runs (see `.github/workflows/monitor.yml` and
-`RESEARCH.md` §7 for the full reasoning):
+The workflow runs **every 5 minutes, all day** (`cron: "*/5 * * * *"` in
+`.github/workflows/monitor.yml`) — every run does one fetch-filter-check cycle and exits in
+a few seconds. Five minutes is also the shortest interval GitHub Actions cron supports.
 
-- **Baseline, every 30 minutes, all day.** Catches cancellations or newly-reopened spots
-  within the booking window that's already open. Cheap and simple — one quick check, no
-  polling loop.
-- **Burst, once a day, around the suspected release time.** Dos Lagos's booking window
-  appears to advance by exactly one day at local midnight (`America/Los_Angeles`) — this is
-  inferred from the vendor's config, not directly observed/confirmed down to the second
-  (see RESEARCH.md). GitHub Actions cron schedules run in UTC and **are not guaranteed to
-  fire at the exact minute** (GitHub's own docs note scheduled runs can be delayed,
-  especially under high load), so a single fixed-time trigger isn't precise enough to
-  "catch it the instant it opens." Instead, the workflow starts a few minutes early and
-  polls every 30 seconds for up to 20 minutes, which comfortably absorbs both GitHub's
-  scheduling slop and any imprecision in the assumed midnight rollover.
-- Two separate cron entries (07:40 UTC and 08:40 UTC) cover both Pacific Daylight Time and
-  Pacific Standard Time, since cron doesn't shift for daylight saving. Whichever one is
-  "in season" does the real polling; the other checks the local time, sees it's outside the
-  expected window, and exits in a couple of seconds — so this doesn't double your Actions
-  usage.
+Two things to know about precision:
+
+- **GitHub's own docs say scheduled runs aren't guaranteed to fire exactly on time** — they
+  can be delayed by a few minutes, and under high GitHub-wide load some scheduled runs can
+  be skipped entirely. In practice "every 5 minutes" means "checked very recently," not a
+  guaranteed tick. This is fine for cancellations/reopenings throughout the day; the one
+  case it isn't perfectly tight for is the exact instant the booking window advances to a
+  new day (believed to be local midnight at the course — see RESEARCH.md; this was inferred
+  from the vendor's config, not directly observed down to the second). Worst case you find
+  out a few minutes later than the literal first second it opened, which checking every 5–10
+  minutes already gets you most of the way to "almost immediately."
+- If you want tighter precision specifically around that midnight rollover, the CLI has a
+  `--burst` mode built in (`python -m src.monitor --burst --burst-minutes 20
+  --poll-interval 30`) that polls every 30 seconds for a bounded window — it's just not
+  wired into the default schedule right now since you asked for a simple fixed interval.
+  You can add it back as an extra scheduled step if you want both.
 
 **If you want to verify the exact rollover time yourself:** run
 `python -m src.monitor --date <today+13> --dry-run` every few minutes starting around
 11:45 PM Pacific and watch for the moment it stops returning "No matching tee times found."
 (you may need to temporarily loosen `earliest_time`/`latest_time` to see *any* result, not
-just ones matching your usual preferences). If you find it's not midnight, adjust
-`--window-start`/`--window-end` in `monitor.yml`'s burst steps accordingly.
+just ones matching your usual preferences).
+
+### One consolidated email, not one per tee time
+
+Every matching tee time across all your configured dates is combined into a **single**
+numbered email (see `src/notifier.py`'s `build_consolidated_body`), not one email per slot.
+An email is only sent when at least one tee time is *new* since the last check (so you
+don't get re-notified every 5 minutes about something already open), but when it fires, the
+email lists **every** currently-matching tee time, numbered 1, 2, 3… This numbering is
+intentionally the groundwork for a future "reply with a number to book it" flow — it isn't
+wired up yet (see "What this project deliberately does not do" below for why that's a
+bigger, more careful step), but the list format is ready for it.
 
 ---
 

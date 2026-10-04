@@ -2,22 +2,12 @@ name: Dos Lagos Tee Time Monitor
 
 on:
   schedule:
-    # Baseline check every 30 minutes, all day — catches cancellations/reopened spots
-    # within the already-open booking window. GitHub Actions cron fires in UTC and is
-    # NOT guaranteed to run at the exact minute (it can be delayed, especially during
-    # high GitHub-wide load) — that's fine here since this job isn't time-critical.
-    - cron: "5,35 * * * *"
-
-    # "Burst" runs: short bounded bursts of frequent polling around the suspected
-    # inventory-rollover time (believed to be local midnight at the course, in
-    # America/Los_Angeles — see RESEARCH.md; this was inferred from the vendor's own
-    # config, not directly observed). Two triggers cover both PDT (UTC-7) and PST
-    # (UTC-8) since GitHub Actions cron is fixed UTC and doesn't shift for daylight
-    # saving. Whichever one is "out of season" exits in a couple seconds without
-    # polling (see --window-start/--window-end gating in src/monitor.py), so this does
-    # not double the real workload.
-    - cron: "40 7 * * *"  # ~00:40 America/Los_Angeles during PDT (UTC-7)
-    - cron: "40 8 * * *"  # ~00:40 America/Los_Angeles during PST (UTC-8)
+    # Every 5 minutes, all day. GitHub's own docs say scheduled workflows are NOT
+    # guaranteed to fire at the exact minute (they can be delayed, and under high
+    # GitHub-wide load some scheduled runs can be skipped entirely) — 5 minutes is
+    # also the shortest interval GitHub Actions cron supports. In practice this means
+    # "checked recently", not "checked at :00/:05/:10 on the dot".
+    - cron: "*/5 * * * *"
 
   # Lets you click "Run workflow" in the GitHub UI to test on demand.
   workflow_dispatch:
@@ -26,10 +16,10 @@ on:
         description: "Dry run (print matches, do not email or commit state)"
         type: boolean
         default: false
-      burst:
-        description: "Run in burst-polling mode instead of a single check"
-        type: boolean
-        default: false
+      date:
+        description: "Check one specific date (YYYY-MM-DD) instead of the configured days/days_ahead window"
+        type: string
+        default: ""
 
 permissions:
   contents: write  # needed to commit the updated state.json back to the repo
@@ -41,9 +31,7 @@ concurrency:
 jobs:
   monitor:
     runs-on: ubuntu-latest
-    # Hard safety cap distinct from --burst-minutes: if something hangs, the whole job
-    # (not just the polling loop) is killed well within free-tier minutes.
-    timeout-minutes: 35
+    timeout-minutes: 5
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -63,24 +51,7 @@ jobs:
             echo "No config.json committed; using config.example.json defaults."
           fi
 
-      - name: Run monitor (scheduled baseline)
-        if: github.event_name == 'schedule' && github.event.schedule == '5,35 * * * *'
-        env:
-          GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
-          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
-          NOTIFY_EMAIL: ${{ secrets.NOTIFY_EMAIL }}
-        run: python -m src.monitor
-
-      - name: Run monitor (scheduled burst window)
-        if: github.event_name == 'schedule' && github.event.schedule != '5,35 * * * *'
-        env:
-          GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
-          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
-          NOTIFY_EMAIL: ${{ secrets.NOTIFY_EMAIL }}
-        run: python -m src.monitor --burst --burst-minutes 20 --poll-interval 30
-
-      - name: Run monitor (manual dispatch)
-        if: github.event_name == 'workflow_dispatch'
+      - name: Run monitor
         env:
           GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
@@ -88,7 +59,7 @@ jobs:
         run: |
           ARGS=""
           if [ "${{ inputs.dry_run }}" = "true" ]; then ARGS="$ARGS --dry-run"; fi
-          if [ "${{ inputs.burst }}" = "true" ]; then ARGS="$ARGS --burst --burst-minutes 5 --poll-interval 15 --window-start 00:00 --window-end 23:59"; fi
+          if [ -n "${{ inputs.date }}" ]; then ARGS="$ARGS --date ${{ inputs.date }}"; fi
           python -m src.monitor $ARGS
 
       - name: Commit updated state
