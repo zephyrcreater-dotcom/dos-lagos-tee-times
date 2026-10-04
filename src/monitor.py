@@ -23,6 +23,7 @@ from .notifier import (
     build_sms_body,
     send_consolidated_alert,
     send_sms_alert,
+    send_sms_diagnostic,
     sms_config_from_env,
 )
 from .teeitup import COURSE_TIMEZONE, TeeItUpError, TeeTime, get_tee_times
@@ -143,6 +144,26 @@ def run(config_path: str, state_path: str, dry_run: bool, single_date: str | Non
     return run_one_cycle(config, state_path, dry_run, single_date)
 
 
+def run_test_sms() -> int:
+    """Send 3 diagnostic texts (plain / full link / shortened link) to isolate carrier
+    spam-filtering issues. See notifier.send_sms_diagnostic for why this sends 3 separately
+    rather than 1 combined message."""
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    try:
+        email_config = EmailConfig.from_env()
+        sms_config = sms_config_from_env(email_config)
+    except ValueError as exc:
+        logger.error("Cannot send test SMS: %s", exc)
+        return 1
+    if sms_config is None:
+        logger.error("PHONE_NUMBER/CARRIER are not set; nothing to test.")
+        return 1
+
+    send_sms_diagnostic(sms_config)
+    logger.info("Sent 3 test texts. Check your phone for which ones (if any) arrived.")
+    return 0
+
+
 def _parse_hhmm_local(value: str) -> dt_time:
     hours, minutes = value.split(":")
     return dt_time(int(hours), int(minutes))
@@ -246,7 +267,15 @@ def main(argv: list[str] | None = None) -> int:
         default="01:30",
         help="Pacific local HH:MM burst window end (may be earlier than --window-start to wrap past midnight)",
     )
+    parser.add_argument(
+        "--test-sms",
+        action="store_true",
+        help="Send 3 diagnostic texts (plain/full-link/short-link) to debug carrier delivery, then exit",
+    )
     args = parser.parse_args(argv)
+
+    if args.test_sms:
+        return run_test_sms()
 
     if args.burst:
         return run_burst(

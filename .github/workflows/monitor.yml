@@ -20,6 +20,10 @@ on:
         description: "Check one specific date (YYYY-MM-DD) instead of the configured days/days_ahead window"
         type: string
         default: ""
+      test_sms:
+        description: "Send 3 diagnostic texts (plain/full-link/short-link) instead of a normal run"
+        type: boolean
+        default: false
 
 permissions:
   contents: write  # needed to commit the updated state.json back to the repo
@@ -60,6 +64,7 @@ jobs:
           CARRIER: ${{ secrets.CARRIER }}
         run: |
           ARGS=""
+          if [ "${{ inputs.test_sms }}" = "true" ]; then ARGS="$ARGS --test-sms"; fi
           if [ "${{ inputs.dry_run }}" = "true" ]; then ARGS="$ARGS --dry-run"; fi
           if [ -n "${{ inputs.date }}" ]; then ARGS="$ARGS --date ${{ inputs.date }}"; fi
           python -m src.monitor $ARGS

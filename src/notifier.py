@@ -269,6 +269,28 @@ def _with_shortened_urls(tee_times: list[TeeTime]) -> list[TeeTime]:
     return shortened
 
 
+def send_sms_diagnostic(sms_config: EmailConfig) -> None:
+    """Send three separate test texts to isolate why a text might not be arriving.
+
+    Carrier email-to-SMS gateways and spam filters are a black box from the sending side —
+    the SMTP server accepting a message (what `send_email` logs as "sent successfully")
+    only means Gmail accepted it, not that the carrier delivered it to the handset. Sending
+    a plain-text message, one with a full teeitup.com link, and one with a shortened link,
+    as three separate texts, lets you tell the sending/receiving team concretely which ones
+    an actual spam filter ate.
+    """
+    real_link = "https://dos-lagos-golf-course.book.teeitup.com/teetimes?course=3510"
+    short_link = shorten_url(real_link)
+
+    tests = [
+        "Dos Lagos SMS test 1/3: plain text, no link.",
+        f"Dos Lagos SMS test 2/3: full link. {real_link}",
+        f"Dos Lagos SMS test 3/3: shortened link. {short_link}",
+    ]
+    for text in tests:
+        send_email(subject="", body=text, config=sms_config)
+
+
 def send_sms_alert(tee_times: list[TeeTime], sms_config: EmailConfig) -> None:
     """Send the SMS summary, with booking URLs shortened for readability on a phone screen.
 
