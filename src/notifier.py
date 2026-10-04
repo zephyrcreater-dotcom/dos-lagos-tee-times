@@ -9,15 +9,19 @@ from __future__ import annotations
 import logging
 import os
 import smtplib
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from zoneinfo import ZoneInfo
 
+import requests
+
 from .teeitup import COURSE_TIMEZONE, TeeTime
 
 logger = logging.getLogger(__name__)
+
+URL_SHORTENER_TIMEOUT_SECONDS = 5
 
 SMTP_HOST = "smtp.gmail.com"
 SMTP_PORT = 587
@@ -225,10 +229,54 @@ def build_sms_body(tee_times: list[TeeTime]) -> str:
     return "\n".join(lines)
 
 
+def shorten_url(url: str) -> str:
+    """Shorten `url` via TinyURL's free, keyless API. Falls back to the original URL on any
+    failure (network error, timeout, unexpected response) — a long link is a readability
+    annoyance, not a reason to fail the whole alert.
+
+    Tried is.gd/v.gd first during development — both flatly reject every URL on the
+    teeitup.com domain with "Error, database insert failed" (confirmed against several
+    different URLs and query strings, so it's a domain-level block on their end, not
+    something fixable by retrying or tweaking the request). TinyURL shortens them fine and
+    was verified to redirect back to the exact original URL.
+    """
+    try:
+        response = requests.get(
+            "https://tinyurl.com/api-create.php",
+            params={"url": url},
+            timeout=URL_SHORTENER_TIMEOUT_SECONDS,
+        )
+        response.raise_for_status()
+        short_url = response.text.strip()
+        if short_url.startswith("http"):
+            return short_url
+        logger.warning("URL shortener returned an unexpected response for %s: %s", url, short_url)
+    except requests.RequestException:
+        logger.warning("Failed to shorten URL %s; sending the full-length URL instead", url)
+    return url
+
+
+def _with_shortened_urls(tee_times: list[TeeTime]) -> list[TeeTime]:
+    """Replace each tee time's booking_url with a shortened one, reusing one lookup per
+    distinct URL (times grouped into the same hour already share a URL — no need to shorten
+    it more than once)."""
+    cache: dict[str, str] = {}
+    shortened = []
+    for t in tee_times:
+        if t.booking_url not in cache:
+            cache[t.booking_url] = shorten_url(t.booking_url)
+        shortened.append(replace(t, booking_url=cache[t.booking_url]))
+    return shortened
+
+
 def send_sms_alert(tee_times: list[TeeTime], sms_config: EmailConfig) -> None:
-    """Send the short SMS summary. Uses no subject line — most carrier gateways either drop
-    it or prepend it inconsistently, so all the content lives in the body."""
-    send_email(subject="", body=build_sms_body(tee_times), config=sms_config)
+    """Send the SMS summary, with booking URLs shortened for readability on a phone screen.
+
+    Uses no subject line — most carrier gateways either drop it or prepend it
+    inconsistently, so all the content lives in the body.
+    """
+    shortened = _with_shortened_urls(tee_times)
+    send_email(subject="", body=build_sms_body(shortened), config=sms_config)
 
 
 def send_email(subject: str, body: str, config: EmailConfig) -> None:

@@ -3,12 +3,15 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 import pytest
+import requests
 
 from src.notifier import (
     EmailConfig,
+    _with_shortened_urls,
     build_consolidated_body,
     build_consolidated_subject,
     build_sms_body,
+    shorten_url,
     sms_config_from_env,
     sms_gateway_address,
 )
@@ -148,3 +151,74 @@ class TestBuildSmsBody:
         body = build_sms_body(tee_times)
         assert body.count("example.test") == 1
         assert "7:30 AM, 7:40 AM" in body
+
+
+class _FakeResponse:
+    def __init__(self, text, status_code=200):
+        self.text = text
+        self.status_code = status_code
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise requests.HTTPError(f"status {self.status_code}")
+
+
+class TestShortenUrl:
+    def test_returns_shortened_url_on_success(self, monkeypatch):
+        monkeypatch.setattr(
+            "src.notifier.requests.get",
+            lambda *a, **k: _FakeResponse("https://tinyurl.com/abc123"),
+        )
+        assert shorten_url("https://example.test/long/path") == "https://tinyurl.com/abc123"
+
+    def test_falls_back_to_original_on_network_error(self, monkeypatch):
+        def raise_error(*a, **k):
+            raise requests.ConnectionError("boom")
+
+        monkeypatch.setattr("src.notifier.requests.get", raise_error)
+        original = "https://example.test/long/path"
+        assert shorten_url(original) == original
+
+    def test_falls_back_to_original_on_unexpected_response_body(self, monkeypatch):
+        monkeypatch.setattr(
+            "src.notifier.requests.get",
+            lambda *a, **k: _FakeResponse("Error, database insert failed"),
+        )
+        original = "https://example.test/long/path"
+        assert shorten_url(original) == original
+
+    def test_falls_back_to_original_on_http_error_status(self, monkeypatch):
+        monkeypatch.setattr(
+            "src.notifier.requests.get",
+            lambda *a, **k: _FakeResponse("server error", status_code=500),
+        )
+        original = "https://example.test/long/path"
+        assert shorten_url(original) == original
+
+
+class TestWithShortenedUrls:
+    def test_replaces_booking_url(self, monkeypatch):
+        monkeypatch.setattr("src.notifier.shorten_url", lambda url: f"short://{url}")
+        tee_times = [make_tee_time("2026-10-10", "07:30")]
+        result = _with_shortened_urls(tee_times)
+        assert result[0].booking_url == "short://https://example.test/book?date=2026-10-10"
+        # Original list/objects are untouched (TeeTime is frozen).
+        assert tee_times[0].booking_url == "https://example.test/book?date=2026-10-10"
+
+    def test_shortens_each_distinct_url_only_once(self, monkeypatch):
+        calls = []
+
+        def fake_shorten(url):
+            calls.append(url)
+            return f"short-{len(calls)}"
+
+        monkeypatch.setattr("src.notifier.shorten_url", fake_shorten)
+        tee_times = [
+            make_tee_time("2026-10-10", "07:30"),  # shares a URL with the next one
+            make_tee_time("2026-10-10", "07:40"),
+            make_tee_time("2026-10-11", "08:00"),  # different date -> different URL
+        ]
+        result = _with_shortened_urls(tee_times)
+        assert len(calls) == 2  # only 2 distinct booking_urls across the 3 tee times
+        assert result[0].booking_url == result[1].booking_url == "short-1"
+        assert result[2].booking_url == "short-2"
