@@ -17,7 +17,14 @@ from datetime import datetime, time as dt_time
 from pathlib import Path
 
 from . import filters, state as state_module
-from .notifier import EmailConfig, build_consolidated_body, send_consolidated_alert
+from .notifier import (
+    EmailConfig,
+    build_consolidated_body,
+    build_sms_body,
+    send_consolidated_alert,
+    send_sms_alert,
+    sms_config_from_env,
+)
 from .teeitup import COURSE_TIMEZONE, TeeItUpError, TeeTime, get_tee_times
 
 logger = logging.getLogger(__name__)
@@ -78,6 +85,8 @@ def run_one_cycle(config: dict, state_path: str, dry_run: bool, single_date: str
         if matching:
             print("\n-- Email that would be sent (consolidated, numbered list) --")
             print(build_consolidated_body(matching))
+            print("-- SMS that would be sent, if PHONE_NUMBER/CARRIER are configured --")
+            print(build_sms_body(matching))
         else:
             print("No matching tee times found.")
         return 0
@@ -97,6 +106,17 @@ def run_one_cycle(config: dict, state_path: str, dry_run: bool, single_date: str
         except Exception:
             logger.exception("Failed to send email alert")
             return 1
+
+        try:
+            sms_config = sms_config_from_env(email_config)
+            if sms_config is not None:
+                send_sms_alert(matching, sms_config)
+            else:
+                logger.info("PHONE_NUMBER/CARRIER not set; skipping SMS alert.")
+        except Exception:
+            # SMS is an optional add-on to the email alert — a failure here should not be
+            # treated as a failed run (the email already went out successfully).
+            logger.exception("Failed to send SMS alert (email alert already sent successfully)")
     else:
         logger.info("No newly-available matching tee times; no email sent.")
 

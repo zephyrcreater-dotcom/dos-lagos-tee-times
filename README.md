@@ -67,9 +67,23 @@ in `config.json` or any file you commit.**
 | `GMAIL_ADDRESS` | The Gmail address you created the App Password for (e.g. `you@gmail.com`) |
 | `GMAIL_APP_PASSWORD` | The 16-character App Password from step 2 (spaces are fine either way) |
 | `NOTIFY_EMAIL` | The email address that should **receive** alerts (can be the same as `GMAIL_ADDRESS`) |
+| `PHONE_NUMBER` *(optional)* | Your 10-digit US phone number, for free SMS text alerts (e.g. `5551234567`) |
+| `CARRIER` *(optional)* | Your carrier — one of `att`, `t-mobile`, `verizon`, `sprint`, `google-fi`, `us-cellular`, `cricket`, `boost`, `metro`, `visible` |
+
+The last two are optional — without them, you just get email. With both set, every alert
+also goes out as a free text message via your carrier's email-to-SMS gateway (no Twilio, no
+paid SMS API — it's literally an email sent to e.g. `5551234567@tmomail.net`, which your
+carrier delivers as a text). The text is a short summary (count + earliest match, or full
+detail if there's exactly one match) — the complete numbered list with links always lives
+in the email.
 
 That's it — no other secrets are needed. There are no API keys for the tee-time data
 itself; that endpoint is public (see RESEARCH.md).
+
+**A note on SMS reliability:** carrier email-to-SMS gateways are free but unofficial —
+they're not guaranteed by the carrier, can be delayed by a few minutes, and are occasionally
+dropped by the carrier's spam filtering. Treat the text as a fast heads-up and the email as
+the reliable source of truth.
 
 ---
 

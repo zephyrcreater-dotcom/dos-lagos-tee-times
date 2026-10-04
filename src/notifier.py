@@ -48,6 +48,52 @@ class EmailConfig:
             )
         return cls(sender_address=sender, app_password=password, recipient_address=recipient)
 
+    def with_recipient(self, recipient_address: str) -> "EmailConfig":
+        return EmailConfig(
+            sender_address=self.sender_address,
+            app_password=self.app_password,
+            recipient_address=recipient_address,
+        )
+
+
+# Free carrier email-to-SMS gateways. No API key, no paid service — the carrier just
+# delivers an email sent to this address as a text message to the phone number in the
+# local part. Unofficial but widely used; delivery isn't guaranteed and can be delayed or
+# occasionally filtered as spam by the carrier (see README's SMS troubleshooting section).
+CARRIER_GATEWAYS = {
+    "att": "txt.att.net",
+    "t-mobile": "tmomail.net",
+    "tmobile": "tmomail.net",
+    "verizon": "vtext.com",
+    "sprint": "messaging.sprintpcs.com",
+    "google-fi": "msg.fi.google.com",
+    "googlefi": "msg.fi.google.com",
+    "us-cellular": "email.uscc.net",
+    "uscellular": "email.uscc.net",
+    "cricket": "sms.cricketwireless.net",
+    "boost": "sms.myboostmobile.com",
+    "metro": "mymetropcs.com",
+    "metropcs": "mymetropcs.com",
+    "visible": "vtext.com",
+}
+
+
+def sms_gateway_address(phone_number: str, carrier: str) -> str:
+    """Build a carrier email-to-SMS gateway address like "5551234567@vtext.com"."""
+    digits = "".join(ch for ch in phone_number if ch.isdigit())
+    if len(digits) == 11 and digits.startswith("1"):
+        digits = digits[1:]  # strip a leading US country code
+    if len(digits) != 10:
+        raise ValueError(f"Expected a 10-digit US phone number, got {phone_number!r}")
+
+    key = carrier.strip().lower()
+    domain = CARRIER_GATEWAYS.get(key)
+    if domain is None:
+        known = ", ".join(sorted(set(CARRIER_GATEWAYS.values())))
+        raise ValueError(f"Unknown carrier {carrier!r}. Known gateway domains: {known}")
+
+    return f"{digits}@{domain}"
+
 
 def _format_date_long(iso_date: str) -> str:
     d = datetime.strptime(iso_date, "%Y-%m-%d")
@@ -127,6 +173,54 @@ def send_consolidated_alert(tee_times: list[TeeTime], config: EmailConfig) -> No
         body=build_consolidated_body(tee_times),
         config=config,
     )
+
+
+def sms_config_from_env(base_config: EmailConfig) -> EmailConfig | None:
+    """Build an SMS-targeted EmailConfig from PHONE_NUMBER/CARRIER env vars, if both are set.
+
+    Reuses `base_config`'s Gmail sender/app-password — sending a text is just sending an
+    email to the carrier's gateway address, over the same SMTP connection. Returns None
+    (not an error) if SMS isn't configured, so it stays a purely additive, optional feature.
+    """
+    phone_number = os.environ.get("PHONE_NUMBER")
+    carrier = os.environ.get("CARRIER")
+    if not phone_number or not carrier:
+        return None
+    gateway_address = sms_gateway_address(phone_number, carrier)
+    return base_config.with_recipient(gateway_address)
+
+
+def build_sms_body(tee_times: list[TeeTime]) -> str:
+    """A short text-message-friendly summary — full details go in the email, not the text.
+
+    Carrier email-to-SMS gateways will split a longer message into multiple texts rather
+    than reject it, but keeping this short and scannable matters more for a text than an
+    email: this is meant to be glanced at, not read in depth.
+    """
+    ordered = sorted(tee_times, key=lambda t: (t.date, t.time))
+    count = len(ordered)
+    noun = "tee time" if count == 1 else "tee times"
+
+    if count == 1:
+        t = ordered[0]
+        spots_word = "spot" if t.available_spots == 1 else "spots"
+        return (
+            f"Dos Lagos: {_format_date_long(t.date)} {_format_time_12h(t.time)} "
+            f"({t.available_spots} {spots_word}) available. {t.booking_url}"
+        )
+
+    earliest = ordered[0]
+    return (
+        f"Dos Lagos: {count} matching {noun} available. "
+        f"Earliest: {_format_date_long(earliest.date)} {_format_time_12h(earliest.time)}. "
+        "Check email for the full list."
+    )
+
+
+def send_sms_alert(tee_times: list[TeeTime], sms_config: EmailConfig) -> None:
+    """Send the short SMS summary. Uses no subject line — most carrier gateways either drop
+    it or prepend it inconsistently, so all the content lives in the body."""
+    send_email(subject="", body=build_sms_body(tee_times), config=sms_config)
 
 
 def send_email(subject: str, body: str, config: EmailConfig) -> None:

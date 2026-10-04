@@ -173,20 +173,23 @@ GolfNow's separate `my.golfid.io` identity service (`golfIdAuthHost`), i.e. a re
 account, not a password local to this site.
 
 **Decision, honoring the "do not bypass auth/CAPTCHA" constraint:** this project does
-**not** attempt to log in, hold a cart, or submit a booking automatically. The deep link
-sent in the notification email takes the user to the pre-filtered date view on the real
-booking site:
+**not** attempt to log in, hold a cart, or submit a booking automatically. There is no
+true per-slot URL exposed by the front end (clicking "Book Now" only expands in-page state,
+no unique identifier in the URL) — but the Filters panel's Time range picker **does** drive
+real `start`/`end` query params (confirmed by direct testing: loading
+`?date=...&start=11&end=12` fresh filters results to just that hour). The booking link sent
+in each alert brackets the one hour containing that tee time:
 
 ```
-https://dos-lagos-golf-course.book.teeitup.com/teetimes?course=3510&date=YYYY-MM-DD&max=999999
+https://dos-lagos-golf-course.book.teeitup.com/teetimes?course=3510&date=YYYY-MM-DD&start=H&end=H+1&max=999999
 ```
 
-There is no further per-time-slot URL parameter exposed by the front end to jump straight
-to one tee time — the user picks the exact card after the page loads (there are usually
-only a handful of cards on a filtered date, so this is a 1-click experience in practice).
-This matches the requested Phase 7 "EMAIL → CLICK TEE TIME → OPEN CORRECT BOOKING PAGE"
-design. A more automated booking flow is out of scope until/unless Dos Lagos exposes a
-documented, login-free booking API — which it does not appear to.
+This is the tightest deep link the site's URL scheme allows — usually it narrows to just
+one or two cards, occasionally a handful if several tee times share an hour (they're spaced
+roughly every 10 minutes). The user still picks the exact card after the page loads; this
+matches the requested Phase 7 "EMAIL → CLICK TEE TIME → OPEN CORRECT BOOKING PAGE" design.
+A more automated booking flow is out of scope until/unless Dos Lagos exposes a documented,
+login-free booking API — which it does not appear to.
 
 ## 6. Bot protection / politeness
 

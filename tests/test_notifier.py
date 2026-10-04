@@ -1,7 +1,17 @@
+import os
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from src.notifier import build_consolidated_body, build_consolidated_subject
+import pytest
+
+from src.notifier import (
+    EmailConfig,
+    build_consolidated_body,
+    build_consolidated_subject,
+    build_sms_body,
+    sms_config_from_env,
+    sms_gateway_address,
+)
 from src.teeitup import TeeTime
 
 PACIFIC = ZoneInfo("America/Los_Angeles")
@@ -63,3 +73,69 @@ class TestBuildConsolidatedBody:
         checked_at = datetime(2026, 10, 4, 10, 0, tzinfo=PACIFIC)
         body = build_consolidated_body([make_tee_time("2026-10-10", "07:30")], checked_at=checked_at)
         assert "Checked at:" in body
+
+
+class TestSmsGatewayAddress:
+    def test_builds_expected_address(self):
+        assert sms_gateway_address("555-123-4567", "verizon") == "5551234567@vtext.com"
+
+    def test_strips_formatting_characters(self):
+        assert sms_gateway_address("(555) 123-4567", "att") == "5551234567@txt.att.net"
+
+    def test_strips_leading_us_country_code(self):
+        assert sms_gateway_address("15551234567", "t-mobile") == "5551234567@tmomail.net"
+
+    def test_carrier_name_is_case_insensitive(self):
+        assert sms_gateway_address("5551234567", "Verizon") == "5551234567@vtext.com"
+
+    def test_unknown_carrier_raises(self):
+        with pytest.raises(ValueError):
+            sms_gateway_address("5551234567", "not-a-real-carrier")
+
+    def test_wrong_digit_count_raises(self):
+        with pytest.raises(ValueError):
+            sms_gateway_address("12345", "verizon")
+
+
+class TestSmsConfigFromEnv:
+    BASE = EmailConfig(sender_address="me@gmail.com", app_password="pw", recipient_address="me@gmail.com")
+
+    def test_returns_none_when_unset(self, monkeypatch):
+        monkeypatch.delenv("PHONE_NUMBER", raising=False)
+        monkeypatch.delenv("CARRIER", raising=False)
+        assert sms_config_from_env(self.BASE) is None
+
+    def test_returns_none_when_only_phone_set(self, monkeypatch):
+        monkeypatch.setenv("PHONE_NUMBER", "5551234567")
+        monkeypatch.delenv("CARRIER", raising=False)
+        assert sms_config_from_env(self.BASE) is None
+
+    def test_builds_config_when_both_set(self, monkeypatch):
+        monkeypatch.setenv("PHONE_NUMBER", "5551234567")
+        monkeypatch.setenv("CARRIER", "verizon")
+        result = sms_config_from_env(self.BASE)
+        assert result is not None
+        assert result.recipient_address == "5551234567@vtext.com"
+        # Sender credentials are reused from the base (email) config.
+        assert result.sender_address == self.BASE.sender_address
+        assert result.app_password == self.BASE.app_password
+
+
+class TestBuildSmsBody:
+    def test_single_match_includes_booking_url(self):
+        body = build_sms_body([make_tee_time("2026-10-10", "07:30", spots=2)])
+        assert "Saturday, October 10" in body
+        assert "7:30 AM" in body
+        assert "https://example.test/book?date=2026-10-10" in body
+
+    def test_multiple_matches_gives_count_and_earliest_only(self):
+        tee_times = [
+            make_tee_time("2026-10-11", "08:00"),
+            make_tee_time("2026-10-10", "07:30"),
+        ]
+        body = build_sms_body(tee_times)
+        assert "2 matching tee times" in body
+        assert "Earliest: Saturday, October 10 7:30 AM" in body
+        assert "Check email for the full list" in body
+        # Should not dump every booking URL into the text.
+        assert body.count("example.test") == 0

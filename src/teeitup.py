@@ -59,6 +59,20 @@ def booking_url_for_date(iso_date: str, facility_id: str = DEFAULT_FACILITY_ID) 
     return f"{BOOKING_SITE_URL}?course={facility_id}&date={iso_date}&max=999999"
 
 
+def booking_url_for_slot(iso_date: str, local_time: str, facility_id: str = DEFAULT_FACILITY_ID) -> str:
+    """Build a deep link narrowed to the hour containing `local_time` ("HH:MM").
+
+    The site has no per-slot URL (confirmed in RESEARCH.md — clicking "Book Now" only
+    expands in-page state), but it does support `start`/`end` hour-range query params that
+    actually filter results on a fresh page load (confirmed by direct testing). Bracketing
+    just the one hour is the tightest deep link the site's URL scheme allows — usually only
+    a handful of tee times (often just one or two) fall in the same hour.
+    """
+    hour = int(local_time.split(":")[0])
+    end_hour = min(hour + 1, 23)
+    return f"{BOOKING_SITE_URL}?course={facility_id}&date={iso_date}&start={hour}&end={end_hour}&max=999999"
+
+
 def _parse_teetime_entry(entry: dict, iso_date: str, facility_id: str) -> list[TeeTime]:
     """Turn one raw `teetimes[]` entry into zero or more TeeTime records (one per rate)."""
     results: list[TeeTime] = []
@@ -88,7 +102,7 @@ def _parse_teetime_entry(entry: dict, iso_date: str, facility_id: str) -> list[T
         logger.warning("Tee time at %s %s has no rates", iso_date, local_time_str)
         return results
 
-    booking_url = booking_url_for_date(iso_date, facility_id)
+    booking_url = booking_url_for_slot(iso_date, local_time_str, facility_id)
 
     for rate in rates:
         rate_id = rate.get("_id") or rate.get("externalId")
